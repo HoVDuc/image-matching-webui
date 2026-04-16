@@ -64,9 +64,7 @@ class ARCSizeAwareModelCache:
                 torch.cuda.empty_cache()
 
     def generate_key(self, model_key, model_conf: dict) -> str:
-        loader_identifier = f"{model_key}"
-        unique_str = f"{loader_identifier}-{json.dumps(model_conf, sort_keys=True)}"
-        return hashlib.sha256(unique_str.encode()).hexdigest()
+        return hashlib.sha256(model_key.encode()).hexdigest()
 
     def _get_device(self, model_size: int) -> str:
         for device in self.device_priority:
@@ -258,9 +256,7 @@ class LRUModelCache:
         self.device_priority = device_priority
 
     def generate_key(self, model_key, model_conf: dict) -> str:
-        loader_identifier = f"{model_key}"
-        unique_str = f"{loader_identifier}-{json.dumps(model_conf, sort_keys=True)}"
-        return hashlib.sha256(unique_str.encode()).hexdigest()
+        return hashlib.sha256(model_key.encode()).hexdigest()
 
     def get_device(self) -> str:
         for device in self.device_priority:
