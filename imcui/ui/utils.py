@@ -1088,6 +1088,157 @@ def run_matching(
     )
 
 
+MAX_TABS = 10
+
+
+def _extract_images_from_gallery(candidates):
+    """Extract numpy RGB arrays from gr.Gallery input, handling multiple return formats."""
+    if not candidates:
+        return []
+    images = []
+    for item in candidates:
+        # Handle (image, caption) tuple, dict with 'image' key, object with .image attr,
+        # or direct value
+        if isinstance(item, (tuple, list)):
+            img = item[0]
+        elif isinstance(item, dict):
+            img = item.get("image") or item.get("path")
+        elif hasattr(item, "image"):
+            img = item.image
+        else:
+            img = item
+
+        if img is None:
+            continue
+
+        if isinstance(img, str):
+            bgr = cv2.imread(img)
+            if bgr is None:
+                continue
+            img = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        elif isinstance(img, np.ndarray):
+            if img.ndim == 2:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            elif img.ndim == 3 and img.shape[2] == 4:
+                img = img[:, :, :3]
+        else:
+            try:
+                img = np.array(img)
+                if img.ndim == 2:
+                    img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+                elif img.ndim == 3 and img.shape[2] == 4:
+                    img = img[:, :, :3]
+            except Exception:
+                continue
+
+        images.append(img)
+    return images
+
+
+def _build_tab_flat_outputs(results):
+    """Build flat tuple of gr.update() values for all MAX_TABS tab components.
+
+    Each tab has 7 slots: (tab_visibility, kpts, raw, ransac, wrap, info, geom).
+    """
+    updates = []
+    for i in range(MAX_TABS):
+        r = results[i]
+        if r is not None:
+            updates += [
+                gr.update(visible=True),
+                r["kpts"],
+                r["raw"],
+                r["ransac"],
+                r["wrap"],
+                r["info"],
+                r["geom"],
+            ]
+        else:
+            updates += [
+                gr.update(visible=False),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ]
+    return tuple(updates)
+
+
+def run_matching_multi(
+    candidates,
+    query: np.ndarray,
+    match_threshold: float,
+    extract_max_keypoints: int,
+    keypoint_threshold: float,
+    key: str,
+    ransac_method: str = DEFAULT_RANSAC_METHOD,
+    ransac_reproj_threshold: int = DEFAULT_RANSAC_REPROJ_THRESHOLD,
+    ransac_confidence: float = DEFAULT_RANSAC_CONFIDENCE,
+    ransac_max_iter: int = DEFAULT_RANSAC_MAX_ITER,
+    choice_geometry_type: str = DEFAULT_SETTING_GEOMETRY,
+    matcher_zoo: Dict[str, Any] = None,
+    force_resize: bool = False,
+    image_width: int = 640,
+    image_height: int = 480,
+):
+    """Match multiple candidate images against a single query image.
+
+    Yields a flat tuple of gr.update() for MAX_TABS tabs after each candidate
+    finishes, so the UI updates incrementally as results arrive.
+    """
+    if query is None:
+        raise gr.Error("Please upload a query image.")
+
+    images = _extract_images_from_gallery(candidates)
+    if not images:
+        raise gr.Error("Please upload at least one candidate image.")
+
+    images = images[:MAX_TABS]
+    results = [None] * MAX_TABS
+
+    # Initial yield: all tabs hidden while processing starts
+    yield _build_tab_flat_outputs(results)
+
+    for i, candidate_img in enumerate(images):
+        last_output = None
+        try:
+            for output in run_matching(
+                image0=candidate_img,
+                image1=query,
+                match_threshold=match_threshold,
+                extract_max_keypoints=extract_max_keypoints,
+                keypoint_threshold=keypoint_threshold,
+                key=key,
+                ransac_method=ransac_method,
+                ransac_reproj_threshold=ransac_reproj_threshold,
+                ransac_confidence=ransac_confidence,
+                ransac_max_iter=ransac_max_iter,
+                choice_geometry_type=choice_geometry_type,
+                matcher_zoo=matcher_zoo,
+                force_resize=force_resize,
+                image_width=image_width,
+                image_height=image_height,
+            ):
+                last_output = output
+        except Exception as e:
+            logger.error(f"Error matching candidate {i}: {e}")
+
+        if last_output is not None:
+            kpts, raw, ransac, info, _matcher_info, geom, wrap, _state, _pred = last_output
+            results[i] = {
+                "kpts": kpts,
+                "raw": raw,
+                "ransac": ransac,
+                "wrap": wrap,
+                "info": info,
+                "geom": geom,
+            }
+
+        yield _build_tab_flat_outputs(results)
+
+
 # @ref: https://docs.opencv.org/4.x/d0/d74/md__build_4_x-contrib_docs-lin64_opencv_doc_tutorials_calib3d_usac.html
 # AND: https://opencv.org/blog/2021/06/09/evaluating-opencvs-new-ransacs
 ransac_zoo = {

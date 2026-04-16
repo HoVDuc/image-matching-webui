@@ -9,12 +9,14 @@ from omegaconf import OmegaConf
 from .sfm import SfmEngine
 from .utils import (
     GRADIO_VERSION,
+    MAX_TABS,
     gen_examples,
     generate_warp_images,
     get_matcher_zoo,
     load_config,
     ransac_zoo,
     run_matching,
+    run_matching_multi,
     run_ransac,
     send_to_match,
 )
@@ -99,15 +101,14 @@ class ImageMatchingApp:
                                 value="upload",
                             )
                         with gr.Row():
-                            input_image0 = gr.Image(
-                                label="Image 0",
-                                type="numpy",
-                                image_mode="RGB",
-                                height=300 if GRADIO_VERSION > "3" else None,
+                            input_candidates = gr.Gallery(
+                                label="Candidates (multiple images)",
                                 interactive=True,
+                                columns=4,
+                                height=300 if GRADIO_VERSION > "3" else None,
                             )
-                            input_image1 = gr.Image(
-                                label="Image 1",
+                            input_query = gr.Image(
+                                label="Query",
                                 type="numpy",
                                 image_mode="RGB",
                                 height=300 if GRADIO_VERSION > "3" else None,
@@ -223,10 +224,9 @@ class ImageMatchingApp:
                             outputs=[image_setting_width, image_setting_height],
                         )
                         # collect inputs
-                        state_cache = gr.State({})
                         inputs = [
-                            input_image0,
-                            input_image1,
+                            input_candidates,
+                            input_query,
                             match_setting_threshold,
                             match_setting_max_keypoints,
                             detect_keypoints_threshold,
@@ -242,172 +242,85 @@ class ImageMatchingApp:
                             image_setting_height,
                         ]
 
-                        # Add some examples
-                        with gr.Row():
-                            # Example inputs
-                            with gr.Accordion("Open for More: Examples", open=True):
-                                gr.Examples(
-                                    examples=gen_examples(self.example_data_root),
-                                    inputs=inputs,
-                                    outputs=[],
-                                    fn=run_matching,
-                                    cache_examples=False,
-                                    label=(
-                                        "Examples (click one of the images below to Run"
-                                        " Match). Thx: WxBS"
-                                    ),
-                                )
+                        # Examples section removed: gr.Gallery input is not compatible
+                        # with the gr.Examples tabular format for multi-image candidates.
                         with gr.Accordion("Supported Algorithms", open=False):
                             # add a table of supported algorithms
                             self.display_supported_algorithms()
 
                     with gr.Column():
-                        with gr.Accordion("Open for More: Keypoints", open=True):
-                            output_keypoints = gr.Image(label="Keypoints", type="numpy")
-                        with gr.Accordion(
-                            (
-                                "Open for More: Raw Matches"
-                                " (Green for good matches, Red for bad)"
-                            ),
-                            open=False,
-                        ):
-                            output_matches_raw = gr.Image(
-                                label="Raw Matches",
-                                type="numpy",
-                            )
-                        with gr.Accordion(
-                            (
-                                "Open for More: Ransac Matches"
-                                " (Green for good matches, Red for bad)"
-                            ),
-                            open=True,
-                        ):
-                            output_matches_ransac = gr.Image(
-                                label="Ransac Matches", type="numpy"
-                            )
-                        with gr.Accordion(
-                            "Open for More: Matches Statistics", open=False
-                        ):
-                            output_pred = gr.File(label="Outputs", elem_id="download")
-                            matches_result_info = gr.JSON(label="Matches Statistics")
-                            matcher_info = gr.JSON(label="Match info")
-
-                        with gr.Accordion("Open for More: Warped Image", open=True):
-                            output_wrapped = gr.Image(
-                                label="Wrapped Pair", type="numpy"
-                            )
-                            # send to input
-                            button_rerun = gr.Button(
-                                value="Send to Input Match Pair",
-                                variant="primary",
-                            )
-                            with gr.Accordion(
-                                "Open for More: Geometry info", open=False
-                            ):
-                                geometry_result = gr.JSON(
-                                    label="Reconstructed Geometry"
+                        with gr.Tabs(elem_id="output_tabs"):
+                            tab_objects = []
+                            for i in range(MAX_TABS):
+                                with gr.Tab(
+                                    label=f"Candidate {i + 1}", visible=False
+                                ) as tab:
+                                    with gr.Accordion("Keypoints", open=True):
+                                        out_kpts = gr.Image(
+                                            label="Keypoints", type="numpy"
+                                        )
+                                    with gr.Accordion(
+                                        "Raw Matches (Green=good, Red=bad)", open=False
+                                    ):
+                                        out_raw = gr.Image(
+                                            label="Raw Matches", type="numpy"
+                                        )
+                                    with gr.Accordion(
+                                        "RANSAC Matches (Green=good, Red=bad)",
+                                        open=True,
+                                    ):
+                                        out_ransac = gr.Image(
+                                            label="RANSAC Matches", type="numpy"
+                                        )
+                                    with gr.Accordion("Warped Image", open=True):
+                                        out_wrap = gr.Image(
+                                            label="Warped Pair", type="numpy"
+                                        )
+                                    with gr.Accordion("Match Statistics", open=False):
+                                        out_info = gr.JSON(label="Match Info")
+                                    with gr.Accordion("Geometry Info", open=False):
+                                        out_geom = gr.JSON(label="Geometry")
+                                tab_objects.append(
+                                    (tab, out_kpts, out_raw, out_ransac, out_wrap, out_info, out_geom)
                                 )
 
-                    # callbacks
+                    # flat list: [tab0, kpts0, raw0, ransac0, wrap0, info0, geom0, tab1, ...]
+                    flat_tab_outputs = [comp for items in tab_objects for comp in items]
+
+                    # match_image_src only changes the query image source
                     match_image_src.change(
                         fn=self.ui_change_imagebox,
                         inputs=match_image_src,
-                        outputs=input_image0,
+                        outputs=input_query,
                     )
-                    match_image_src.change(
-                        fn=self.ui_change_imagebox,
-                        inputs=match_image_src,
-                        outputs=input_image1,
-                    )
-                    # collect outputs
-                    outputs = [
-                        output_keypoints,
-                        output_matches_raw,
-                        output_matches_ransac,
-                        matches_result_info,
-                        matcher_info,
-                        geometry_result,
-                        output_wrapped,
-                        state_cache,
-                        output_pred,
-                    ]
-                    # button callbacks
+
+                    # Run button
                     click_event = button_run.click(
-                        fn=run_matching, inputs=inputs, outputs=outputs
+                        fn=run_matching_multi,
+                        inputs=inputs,
+                        outputs=flat_tab_outputs,
                     )
-                    # stop button
+
+                    # Stop button
                     button_stop.click(
                         fn=None, inputs=None, outputs=None, cancels=[click_event]
                     )
 
-                    # Reset images
+                    # Reset button
                     reset_outputs = [
-                        input_image0,
-                        input_image1,
+                        input_candidates,
+                        input_query,
                         match_setting_threshold,
                         match_setting_max_keypoints,
                         detect_keypoints_threshold,
                         matcher_list,
-                        input_image0,
-                        input_image1,
                         match_image_src,
-                        output_keypoints,
-                        output_matches_raw,
-                        output_matches_ransac,
-                        matches_result_info,
-                        matcher_info,
-                        output_wrapped,
-                        geometry_result,
-                        ransac_method,
-                        ransac_reproj_threshold,
-                        ransac_confidence,
-                        ransac_max_iter,
-                        choice_geometry_type,
-                        output_pred,
                         image_force_resize_cb,
-                    ]
+                    ] + flat_tab_outputs
                     button_reset.click(
                         fn=self.ui_reset_state,
                         inputs=None,
                         outputs=reset_outputs,
-                    )
-
-                    # run ransac button action
-                    button_ransac.click(
-                        fn=run_ransac,
-                        inputs=[
-                            state_cache,
-                            choice_geometry_type,
-                            ransac_method,
-                            ransac_reproj_threshold,
-                            ransac_confidence,
-                            ransac_max_iter,
-                        ],
-                        outputs=[
-                            output_matches_ransac,
-                            matches_result_info,
-                            output_wrapped,
-                            output_pred,
-                        ],
-                    )
-
-                    # send warped image to match
-                    button_rerun.click(
-                        fn=send_to_match,
-                        inputs=[state_cache],
-                        outputs=[input_image0, input_image1],
-                    )
-
-                    # estimate geo
-                    choice_geometry_type.change(
-                        fn=generate_warp_images,
-                        inputs=[
-                            input_image0,
-                            input_image1,
-                            geometry_result,
-                            choice_geometry_type,
-                        ],
-                        outputs=[output_wrapped, geometry_result],
                     )
             with gr.Tab("Structure from Motion(under-dev)"):
                 sfm_ui = AppSfmUI(  # noqa: F841
@@ -459,69 +372,28 @@ class ImageMatchingApp:
     def _on_select_force_resize(self, visible: bool = False):
         return gr.update(visible=visible), gr.update(visible=visible)
 
-    def ui_reset_state(
-        self,
-        *args: Any,
-    ) -> Tuple[
-        Optional[np.ndarray],
-        Optional[np.ndarray],
-        float,
-        int,
-        float,
-        str,
-        Dict[str, Any],
-        Dict[str, Any],
-        str,
-        Optional[np.ndarray],
-        Optional[np.ndarray],
-        Optional[np.ndarray],
-        Dict[str, Any],
-        Dict[str, Any],
-        Optional[np.ndarray],
-        Dict[str, Any],
-        str,
-        int,
-        float,
-        int,
-        bool,
-    ]:
-        """
-        Reset the state of the UI.
+    def ui_reset_state(self, *args: Any):
+        """Reset the state of the UI."""
+        import gradio as gr
 
-        Returns:
-            tuple: A tuple containing the initial values for the UI state.
-        """
-        key: str = list(self.matcher_zoo.keys())[
-            0
-        ]  # Get the first key from matcher_zoo
-        # flush_logs()
-        return (
-            None,  # image0: Optional[np.ndarray]
-            None,  # image1: Optional[np.ndarray]
-            self.cfg["defaults"]["match_threshold"],  # matching_threshold: float
-            self.cfg["defaults"]["max_keypoints"],  # max_keypoints: int
-            self.cfg["defaults"]["keypoint_threshold"],  # keypoint_threshold: float
-            key,  # matcher: str
-            self.ui_change_imagebox("upload"),  # input image0: Dict[str, Any]
-            self.ui_change_imagebox("upload"),  # input image1: Dict[str, Any]
-            "upload",  # match_image_src: str
-            None,  # keypoints: Optional[np.ndarray]
-            None,  # raw matches: Optional[np.ndarray]
-            None,  # ransac matches: Optional[np.ndarray]
-            {},  # matches result info: Dict[str, Any]
-            {},  # matcher config: Dict[str, Any]
-            None,  # warped image: Optional[np.ndarray]
-            {},  # geometry result: Dict[str, Any]
-            self.cfg["defaults"]["ransac_method"],  # ransac_method: str
-            self.cfg["defaults"][
-                "ransac_reproj_threshold"
-            ],  # ransac_reproj_threshold: float
-            self.cfg["defaults"]["ransac_confidence"],  # ransac_confidence: float
-            self.cfg["defaults"]["ransac_max_iter"],  # ransac_max_iter: int
-            self.cfg["defaults"]["setting_geometry"],  # geometry: str
-            None,  # predictions
-            False,
+        key: str = list(self.matcher_zoo.keys())[0]
+        base = (
+            None,  # input_candidates
+            None,  # input_query
+            self.cfg["defaults"]["match_threshold"],
+            self.cfg["defaults"]["max_keypoints"],
+            self.cfg["defaults"]["keypoint_threshold"],
+            key,
+            "upload",  # match_image_src
+            False,  # image_force_resize_cb
         )
+        # Reset all tab slots: (tab hidden, 6x None) × MAX_TABS
+        tab_resets = tuple(
+            v
+            for _ in range(MAX_TABS)
+            for v in (gr.update(visible=False), None, None, None, None, None, None)
+        )
+        return base + tab_resets
 
     def display_supported_algorithms(self, style="tab"):
         def get_link(link, tag="Link"):
