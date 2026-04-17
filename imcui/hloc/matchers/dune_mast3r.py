@@ -47,7 +47,7 @@ class DuneMast3r(Duster):
             )
         except Exception:
             # Fallback: download trực tiếp từ NAVER Labs
-            import urllib.request
+            import torch.hub
 
             cache_dir = Path.home() / ".cache" / "dune_mast3r"
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -55,7 +55,7 @@ class DuneMast3r(Duster):
             if not model_path.exists():
                 url = NAVER_CHECKPOINT_URL.format(model_name=model_name)
                 logger.info(f"Downloading DUNE+MASt3R checkpoint from {url}")
-                urllib.request.urlretrieve(url, str(model_path))
+                torch.hub.download_url_to_file(url, str(model_path), progress=True)
             model_path = str(model_path)
 
         logger.info("Loading DUNE+MASt3R model")
