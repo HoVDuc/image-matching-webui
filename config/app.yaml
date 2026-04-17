@@ -98,6 +98,19 @@ matcher_zoo:
       project: https://dust3r.europe.naverlabs.com
       display: true
       efficiency: low  # low, medium, high
+  DUNE+MASt3R:
+    enable: true
+    matcher: dune_mast3r
+    dense: true
+    skip_ci: true
+    info:
+      name: DUNE+MASt3R
+      source: "CVPR 2025"
+      github: https://github.com/naver/mast3r
+      paper: https://arxiv.org/abs/2406.09756
+      project: https://github.com/naver/dune
+      display: true
+      efficiency: low  # low, medium, high
   DUSt3R:
     # TODO: duster is under development
     enable: true

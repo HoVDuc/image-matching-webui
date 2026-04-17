@@ -403,6 +403,25 @@ confs = {
             "dfactor": 16,
         },
     },
+    "dune_mast3r": {
+        "output": "matches-dune_mast3r",
+        "model": {
+            "name": "dune_mast3r",
+            "model_name": "dunemast3r_cvpr25_vitbase.pth",
+            "max_keypoints": 2000,
+            "match_threshold": 0.2,
+            "image_size": 518,
+            "border_margin": 3,
+        },
+        "preprocessing": {
+            "grayscale": False,
+            "force_resize": True,
+            "resize_max": 518,
+            "width": 518,
+            "height": 518,
+            "dfactor": 16,
+        },
+    },
     "xfeat_lightglue": {
         "output": "matches-xfeat_lightglue",
         "model": {
